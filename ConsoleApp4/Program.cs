@@ -13,6 +13,7 @@ namespace GCOverheadExperiment
         private static long startTime;
         private static readonly object lockObject = new object();
         private static bool running;
+        private static int firstToFinalize = -1;
         
         class BigObject
         {
@@ -22,7 +23,7 @@ namespace GCOverheadExperiment
             public BigObject(int id)
             {
                 Id = id;
-                data = new byte[1024 * 1024];
+                data = new byte[1024 * 8];
                 for (int i = 0; i < data.Length; i++)
                 {
                     data[i] = (byte)(i % 256);
@@ -49,8 +50,12 @@ namespace GCOverheadExperiment
                 {
                     garbageCollectionStarted = true;
                     
-                } //Flag
-                
+                }
+
+                if (firstToFinalize == -1)
+                {
+                    firstToFinalize = Id;
+                }
             }
         }
 
@@ -61,7 +66,7 @@ namespace GCOverheadExperiment
                 {
                     Console.WriteLine($"objects finalized: {objectsFinalized}");
                 }
-                
+                Thread.Sleep(100);
             }
         }
 
@@ -73,30 +78,13 @@ namespace GCOverheadExperiment
             p.Start();
             Console.WriteLine($"{GC.GetGCMemoryInfo().HeapSizeBytes / 1024 / 1024} MB");
             GC.RegisterForFullGCNotification(10, 10);
-            List<WeakReference> weakRefs = new List<WeakReference>();
             try
             {
                 int i = 0;
                 while (!garbageCollectionStarted)
                 {
                     var obj = new BigObject(++i);
-                    var weakRef = new WeakReference(obj);
-                    weakRefs.Add(weakRef);
                     obj = null;
-                    
-                    if (i % 50 == 0)
-                    {
-                        GC.Collect(0, GCCollectionMode.Forced);
-                        GC.WaitForPendingFinalizers();
-                        
-                        int aliveCount = 0;
-                        foreach (var wr in weakRefs)
-                        {
-                            if (wr.IsAlive) aliveCount++;
-                        }
-                        Console.WriteLine($"  Alive objects: {aliveCount}/{weakRefs.Count}");
-                    }
-                    
                     if (i > 10000)
                     {
                         break;
@@ -104,8 +92,9 @@ namespace GCOverheadExperiment
                 }
                 Console.WriteLine($"Objects finalized: {objectsFinalized}, garbage collection started when: {objectsCreated}" +
                                   $"At time {Stopwatch.GetElapsedTime(startTime)} ms");
-                
-                weakRefs.Clear();
+                Console.WriteLine($"First to finalize: {firstToFinalize}");
+                GC.Collect(0, GCCollectionMode.Forced);
+                GC.WaitForPendingFinalizers();
                 Console.WriteLine("");
                 
                 long collectionStrated = Stopwatch.GetTimestamp();
@@ -122,7 +111,7 @@ namespace GCOverheadExperiment
                 }
                 
                 TimeSpan afterCollection = Stopwatch.GetElapsedTime(collectionStrated);
-                Console.WriteLine($"\nTime for 500 obj: {afterCollection.TotalMilliseconds:F2} ms");
+                Console.WriteLine($"\nTime for 1000 obj: {afterCollection.TotalMilliseconds:F2} ms");
             }
             catch (OutOfMemoryException ex)
             {
